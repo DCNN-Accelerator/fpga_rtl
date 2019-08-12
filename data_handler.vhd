@@ -29,43 +29,27 @@ entity data_handler is
                 clk                         : in    std_logic;
                 rst                         : in    std_logic;
                 
-                --sizes
-                row                         : out   integer range 0 to 7;
-                column                      : out   integer range 0 to 4096;
-                k_row                       : out   integer range 0 to 8;
-                k_column                    : out   integer range 0 to 8;
-                
-                --softcore reset
+                --soft reset
                 softreset                   : out   std_logic;
                 
-                --data ready flag from line buffer to kernel buffer
-                line2kernel_flag_in         : in    std_logic;
-                line2kernel_flag_out        : out   std_logic;
+                --new data to buff
+                d2b_request                 : in    std_logic;
+                d2b_flag_out                : out   std_logic;
+                d2b_out                     : out   std_logic_vector(23 downto 0);
                 
-                --data ready flag from kernel buffer to line buffer
-                kernel2line_flag_in         : in    std_logic;
-                kernel2line_flag_out        : out   std_logic;
+                --buff data from buffer to convolution
+                b2c_flag_in                 : in    std_logic;
+                b2c_flag_out                : out   std_logic;
                 
-                --data ready flag from memory to kernel buffer
-                mem2kernel_flag_in          : in    std_logic;
-                mem2kernel_flag_out         : out   std_logic;
-                mem2kernel_data_red         : out   std_logic_vector(7 downto 0);
-                mem2kernel_data_green       : out   std_logic_vector(7 downto 0);
-                mem2kernel_data_blue        : out   std_logic_vector(7 downto 0);
+                --data to filter values
+                f_flag_out                  : out   std_logic;
+                f_data                      : out   std_logic_vector(23 downto 0);
                 
-                
-                --data ready flag from kernel buffer to convolution
-                kernel2conv_flag_in         : in    std_logic;
-                kernel2conv_flag_out        : out   std_logic;
-                
-                --convolution data
-                conv_red                    : in    std_logic_vector(17 downto 0);
-                conv_green                  : in    std_logic_vector(17 downto 0);
-                conv_blue                   : in    std_logic_vector(17 downto 0);
+                --data from convolution
+                red_conv                    : in    std_logic_vector(17 downto 0);
+                green_conv                  : in    std_logic_vector(17 downto 0);
+                blue_conv                   : in    std_logic_vector(17 downto 0);
                 conv_done                   : in    std_logic;
-                
-                --data from memory
-                mem_data                    : in    std_logic_vector(15 downto 0);
                 
                 --data from uart
                 rx_uart                     : in    std_logic_vector(23 downto 0);
@@ -77,76 +61,26 @@ entity data_handler is
                 --enables tx_uart to be sent
                 uart_ena                    : out   std_logic;
                 --shows if uart is currently transmitting
-                tx_ready                    : in    std_logic;
-                
-                --line buffer is full
-                full                        : in    std_logic
+                tx_ready                    : in    std_logic
             );
 end data_handler;
 
 architecture rtl of data_handler is
 
-type state_type is (idle, start, running, done);
+type state_type is (idle, handshake_send, handshake_receive, start, filling, running, wait4conv, done);
 type color_type is (idle, red, green, blue);
 
 --state machine 
 signal state                    : state_type;
+signal color                    : color_type;
 --amount of pixels sent over uart. Max size is 4k image size
-signal pixel_counter             : integer range 0 to 4096 * 2160;
+signal pixel_counter            : integer range 0 to 4096 * 2160;
 --waits until uart rx_new flag has reset
 signal rx_flag                  : std_logic;
 
 
 begin
 
-    --process waits until all data is ready before letting flags for data set being true
-    --probably has to be changed but general idea of how it handles the flags
-    process
-    begin
-        --waits until rising edge
-        wait until clk = '1';
-        
-        if(rst = '0') then
-            line2kernel_flag_out <= '0';
-            kernel2line_flag_out <= '0';
-            mem2kernel_flag_out <= '0';
-            kernel2conv_flag_out <= '0';
-        else
-            --checks to see if the line buffer is full yet
-            if(full = '0') then
-                --line buffer is not full, dont send data to convolution
-                --checks to see if all flags are set for data ready to be sent out
-                if(line2kernel_flag_in = '1' and kernel2line_flag_in = '1' and mem2kernel_flag_in = '1') then
-                    --all flags set, allow data to pass
-                    line2kernel_flag_out <= '1';
-                    kernel2line_flag_out <= '1';
-                    mem2kernel_flag_out <= '1';
-                else
-                    --flags are not all set, wait for data to be ready
-                    line2kernel_flag_out <= '0';
-                    kernel2line_flag_out <= '0';
-                    mem2kernel_flag_out <= '0';
-                end if;
-            else
-                --line buffer is full of data, also wait for convolution to be ready
-                --checks to see if all flags are set for data ready to be sent out
-                if(line2kernel_flag_in = '1' and kernel2line_flag_in = '1' and mem2kernel_flag_in = '1' and kernel2conv_flag_in = '1') then
-                    --all flags set, allow data to pass
-                    line2kernel_flag_out <= '1';
-                    kernel2line_flag_out <= '1';
-                    mem2kernel_flag_out <= '1';
-                    kernel2conv_flag_out <= '1';
-                else
-                    --flags are not all set, wait for data to be ready
-                    line2kernel_flag_out <= '0';
-                    kernel2line_flag_out <= '0';
-                    mem2kernel_flag_out <= '0';
-                    kernel2conv_flag_out <= '0';
-                end if;
-            end if;
-        
-        end if;
-    end process;
     
     --process handles state machine
     process
@@ -155,116 +89,240 @@ begin
         wait until clk = '1';
         
         if(rst = '0') then
-            state <= idle;
-            pixel_counter <= 0;
-            rx_flag <= '1';
-            softreset <= '1';
+            
         else
             case (state) is
-                --has not received start packet from PC, watch for packet
+                --checks to see if first part of handshake is sent
                 when idle =>
-                    --packet from pc has arrived
+                    --makes sure soft_reset isnt on
+                    softreset <= '1';
+                    --checks for new data sent
                     if(rx_new = '1') then
-                        --set the rx_flag to false
+                        --set flag to false
                         rx_flag <= '0';
-                        --checks for correct sequence and the rx_flag is true
-                        if(rx_uart = X"FAFA00FFFAFA" and rx_flag = '1') then
-                            --move to start
-                            state <= start;
-                            pixel_counter <= 1;
+                        --sees if handshake matches
+                        if(rx_flag = '1' and rx_uart = X"FAFA00AAFF00") then
+                            --handshake sequence beginning, move to handshake
+                            state <= handshake_send;
                         end if;
                     else
-                        --reset pxiels read
-                        pixel_counter <= 0;
-                        --rx_new is low so new data can be read when it goes high again
+                        --reset flag to true
                         rx_flag <= '1';
                     end if;
                     
-                when start =>
-                    --checks to see which packet pc is sending
-                    case pixel_counter is
-                        --first packet is line_buffer size
-                        when 1 =>
-                            --check for packet
-                            if(rx_new = '1') then
-                                --set flag to false to wait for rx_new to go low
-                                rx_flag <= '0';
-                                if(rx_flag = '1') then
-                                    --convert std_logic_vector to unsigned integer
-                                    --row has max size of 7 so look at last 3 bits
-                                    row <= to_integer(unsigned(rx_uart(2 downto 0)));
-                                    --column has max size of 4096 so look at next 13 bits
-                                    column <= to_integer(unsigned(rx_uart(15 downto 3)));
-                                    --increase to pixel
-                                    pixel_counter <= 2;
-                                end if;
-                            else
-                                --allow new data
-                                rx_flag <= '1';
-                            end if;
-                            
-                        --second packet is kernel_buffer size
-                        when 2 =>
-                            --check for packet
-                            if(rx_new = '1') then
-                                --set flag to false to wait for rx_new to go low
-                                rx_flag <= '0';
-                                if(rx_flag = '1') then
-                                    --convert std_logic_vector to unsigned integer
-                                    --k_row has max size of 8 so look at last 4 bits
-                                    k_row <= to_integer(unsigned(rx_uart(3 downto 0)));
-                                    --k_column has max size of 8 so look at last 4 bits
-                                    k_column <= to_integer(unsigned(rx_uart(7 downto 4)));
-                                    --increase to pixel
-                                    pixel_counter <= 3;
-                                end if;
-                            else
-                                --allow new data
-                                rx_flag <= '1';
-                            end if;
-                            
-                        --third packet is image size
-                        when 3 =>
-                            --check for packet
-                            if(rx_new = '1') then
-                                --set flag to false to wait for rx_new to go low
-                                rx_flag <= '0';
-                                if(rx_flag = '1') then
-                                    --set pixel_counter to the image size
-                                    pixel_counter <= to_integer(unsigned(rx_uart));
-                                    --issue soft reset to other parts (resize_line)
-                                    softreset <= '0';
-                                    --move to running to acqure pixel values
-                                    state <= running;
-                                end if;
-                            else
-                                --allow new data
-                                rx_flag <= '1';
-                            end if;
-                        
-                        --should not occur 
-                        when others =>
-                            pixel_counter <= 1;
-                    end case;
-                
-                when running =>
-                    --turn off soft reset
-                    softreset <= '1';
-                    --checks to see if there are still pixels to be read
-                    if(pixel_counter = 0) then
-                        --no more pixels left, move to done
-                        state <= done;
-                    else
-                        
-                        --decrease amount of pixels left
-                        pixel_counter <= pixel_counter - 1;
+                --sends reply for handshake
+                when handshake_send =>
+                    --checks to see if it is able to send
+                    if(tx_ready = '1') then
+                        --set data to send
+                        tx_uart <= X"00FFAA00AFAF";
+                        --enable uart
+                        uart_ena <= '1';
+                        --move to see if PC acknowledges handshake
+                        state <= handshake_receive;
                     end if;
-                
+                    
+                --checks to see if PC saw our response
+                when handshake_receive =>
+                    --turn off uart tx
+                    uart_ena <= '0';
+                    
+                    --checks for a new value
+                    if(rx_new <= '0') then
+                        --set flag to false
+                        rx_flag <= '0';
+                        if(rx_flag = '1') then
+                            --checks to see if appropiate response
+                            if(rx_uart = X"0123456789AB") then
+                                --start sequence confirmed
+                                state <= start;
+                            else
+                                --wrong response, go back to idle
+                                state <= idle;
+                            end if;
+                        end if;
+                    else
+                        --reset flag
+                        rx_flag <= '1';
+                    end if;
+                    
+                --in start sequence, save all filter data
+                when start =>
+                    --checks for new data 
+                    if(rx_new = '1') then
+                        --set flag to false
+                        rx_flag <= '0';
+                        if(rx_flag = '1') then
+                            --save new data that was sent
+                            f_data <= rx_uart;
+                            --set flag for data sent
+                            f_flag_out <= '1';
+                            
+                            --examines amount of packets sent to determine if all filters were recieved
+                            case (pixel_counter) is
+                                --red filter
+                                when 0 to 15 =>
+                                    --increase pixel_counter
+                                    pixel_counter <= pixel_counter + 1;
+                                   
+                                --green filter
+                                when 16 to 31 =>
+                                    --increase pixel_counter 
+                                    pixel_counter <= pixel_counter + 1;
+                                
+                                --blue filter
+                                when 32 to 46 =>
+                                    --increase pixel_counter 
+                                    pixel_counter <= pixel_counter + 1;
+                                    
+                                --all filters sent
+                                when others =>
+                                    pixel_counter <= 0;
+                                    state <= filling;
+                            end case;
+                        end if;
+                    else
+                        --reset flags
+                        f_flag_out <= '0';
+                        rx_flag <= '1';
+                    end if;
+                    
+                --currently receiving data to fill buff so that one convolution can occur
+                when filling =>
+                    --turn off f_flag_out
+                    f_flag_out <= '0';
+                    
+                    --waits for new data to be sent
+                    if(rx_new = '1') then
+                        --set flag to false
+                        rx_flag <= '0';
+                        if(rx_flag <= '1') then
+                            --check to make sure buff is requesting data
+                            if(d2b_request = '1') then
+                                --send data to buff
+                                d2b_out <= rx_uart;
+                                d2b_flag_out <= '1';
+                            else
+                                --buff doesnt want data ??????
+                            end if;
+                            
+                            --check to see if enough pixels were recieved to do one convolution
+                            --right now using 3 full rows and 4 pixels in 4th row is enough data
+                            if(pixel_counter = 12291) then
+                                state <= wait4conv;
+                                --reset flags
+                                rx_flag <= '1';
+                                d2b_flag_out <= '0';
+                                --set color to red
+                                color <= red;
+                                
+                                --allows data from buffer to convolution
+                                b2c_flag_out <= b2c_flag_in;
+                                
+                                --reset so we can count how many pixels we have sent back
+                                pixel_counter <= 0;
+                            else
+                                --increase pixels read
+                                pixel_counter <= pixel_counter + 1;
+                            end if;
+                        end if;
+                    else
+                        --reset flags
+                        rx_flag <= '1';
+                        d2b_flag_out <= '0';
+                    end if;
+                    
+                --waiting for convolution to finish to send result
+                when wait4conv =>
+                    --turns off b2c_flag
+                    b2c_flag_out <= '0';
+                    
+                    --checks to see if convolution is done
+                    if(conv_done = '1') then
+                        --checks to see if uart is ready
+                        if(tx_ready = '1') then
+                            --enable uart and set data to send
+                            uart_ena <= '1';
+                                case (color) is
+                                    --send out red data and change so next color sent is green
+                                    when red =>
+                                        tx_uart(17 downto 0) <= red_conv;
+                                        color <= green;
+                                    
+                                    --send out green data and change so next color sent is blue
+                                    when green =>
+                                        tx_uart(17 downto 0) <= green_conv;
+                                        color <= blue;
+                                    
+                                    --send out blue data and change to idle
+                                    when blue =>
+                                        tx_uart(17 downto 0) <= blue_conv;
+                                        color <= idle;
+                                    
+                                    --should not occur, so recieve data again
+                                    when idle =>
+                                        state <= running;
+                                end case;
+                            tx_uart(23 downto 18) <= (others => '0');
+                        else
+                            --busy sending data so turn off enable
+                            uart_ena <= '0';
+                            --checks to see if all pixels are sent
+                            if(pixel_counter = 4096 * 2160) then
+                                state <= done;
+                            else
+                                --check to see if idling
+                                if(color = idle) then
+                                    --idling so move to recieve data again
+                                    state <= running;
+                                    --increase pixels sent
+                                    pixel_counter <= pixel_counter + 1;
+                                end if;
+                            end if;
+                        end if;
+                    end if;
+                    
+                --currently running to grab more data
+                when running =>
+                    --waits for new data to be sent
+                    if(rx_new = '1') then
+                        --set flag to false
+                        rx_flag <= '0';
+                        if(rx_flag <= '1') then
+                            --check to make sure buff is requesting data
+                            if(d2b_request = '1') then
+                                --send data to buff
+                                d2b_out <= rx_uart;
+                                d2b_flag_out <= '1';
+                            else
+                                --buff doesnt want data ??????
+                            end if;
+                            
+                            --changes state to wait for convolution result
+                            state <= wait4conv;
+                            --reset flags
+                            rx_flag <= '1';
+                            d2b_flag_out <= '0';
+                            --change color to red
+                            color <= red;
+                            
+                            --allows data from buffer to conv
+                            b2c_flag_out <= b2c_flag_in;
+                        end if;
+                    else
+                        --reset flags
+                        rx_flag <= '1';
+                        d2b_flag_out <= '0';
+                    end if;
+                    
+                --done sending all convolution data
                 when done =>
+                    state <= idle;
+                    --issue a soft reset
+                    softreset <= '0';
                     
                 --should not occur
                 when others =>
-                    state <= idle;
             end case;
         end if;
     end process;
