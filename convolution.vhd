@@ -104,12 +104,11 @@ begin
         if(rst = '0') then
             row <= 0;
             col <= 0;
-            o_done <= '0';
+            o_done <= '1';
             sum <= (others => '0');
             done <= '0';
+            o_val <= (others => '0');
         else
-            --have o_done mimic done
-            o_done <= done;
         
             --checks to see if it is ready for convolution
             if(k_buff_ready = '1') then
@@ -126,13 +125,17 @@ begin
                         --reset counter
                         row <= 0;
                         col <= 0;
+                        --convolution is done
+                        o_done <= '1';
                     else
+                        --convolution beginning so reset done
+                        o_done <= '0';
                         --increase counter
                         if(col = 6) then
                             col <= 0;
                             row <= row + 1;
                         else
-                            col <= col;
+                            col <= col + 1;
                         end if;
                         --continue to perform convolution
                         sum <= sum + signed(filter_byte) * signed('0' & buff_byte);

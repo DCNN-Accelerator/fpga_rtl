@@ -101,7 +101,7 @@ begin
                         --set flag to false
                         rx_flag <= '0';
                         --sees if handshake matches
-                        if(rx_flag = '1' and rx_uart = X"FAFA00AAFF00") then
+                        if(rx_flag = '1' and rx_uart = X"FAFA00") then
                             --handshake sequence beginning, move to handshake
                             state <= handshake_send;
                         end if;
@@ -115,7 +115,7 @@ begin
                     --checks to see if it is able to send
                     if(tx_ready = '1') then
                         --set data to send
-                        tx_uart <= X"00FFAA00AFAF";
+                        tx_uart <= X"00FFAA";
                         --enable uart
                         uart_ena <= '1';
                         --move to see if PC acknowledges handshake
@@ -133,7 +133,7 @@ begin
                         rx_flag <= '0';
                         if(rx_flag = '1') then
                             --checks to see if appropiate response
-                            if(rx_uart = X"0123456789AB") then
+                            if(rx_uart = X"012345") then
                                 --start sequence confirmed
                                 state <= start;
                             else
@@ -161,17 +161,17 @@ begin
                             --examines amount of packets sent to determine if all filters were recieved
                             case (pixel_counter) is
                                 --red filter
-                                when 0 to 15 =>
+                                when 0 to 16 =>
                                     --increase pixel_counter
                                     pixel_counter <= pixel_counter + 1;
                                    
                                 --green filter
-                                when 16 to 31 =>
+                                when 17 to 33 =>
                                     --increase pixel_counter 
                                     pixel_counter <= pixel_counter + 1;
                                 
                                 --blue filter
-                                when 32 to 46 =>
+                                when 34 to 50 =>
                                     --increase pixel_counter 
                                     pixel_counter <= pixel_counter + 1;
                                     

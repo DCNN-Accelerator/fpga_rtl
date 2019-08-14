@@ -84,7 +84,7 @@ begin
                         --save new data
                         my_buff(24582) <= data_in;
                         --shift old data
-                        my_buff(24581 downto 0) <= my_buff(24582 downto 1);
+                        my_buff(0 to 24581) <= my_buff(1 to 24582);
                         --stop requesting data
                         my_request <= '0';
                     else

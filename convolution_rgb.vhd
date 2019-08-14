@@ -92,7 +92,7 @@ begin
                         clk                 => clk,
                         rst                 => rst,
                         k_vals              => k_vals_green,
-                        k_buff              => k_buff_blue,
+                        k_buff              => k_buff_green,
                         k_buff_ready        => k_buff_ready,
                         o_val               => o_val_green,
                         o_done              => green_done

@@ -152,10 +152,14 @@ begin
                 else
                     --continue to wait
                     wait4data <= '1';
+                    --ensure done is low
+                    done <= '0';
                 end if;
             else    
                 --data_in_flag reset, turn wait4data off
                 wait4data <= '0';
+                --ensure done is low
+                done <= '0';
             end if;
         end if;
     end process;
@@ -166,7 +170,7 @@ begin
         --wait for rising edge
         wait until clk = '1';
         
-        if(rst = '0') then
+        if(rst = '0' or softreset = '0') then
             color_state <= idle;
             red_flag <= '0';
             green_flag <= '0';
