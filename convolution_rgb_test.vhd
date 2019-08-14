@@ -123,12 +123,18 @@ begin
         wait until clk_100 = '1';
         
         if(rst_100 = '1') then
-            if(o_done = '1') then
-                b_ready <= '1';
-                
-                temp <= '1';
-            else
-                
+            if(temp = '0') then
+                if(o_done = '1') then
+                    b_ready <= '1';
+                else
+                    temp <= '1';
+                end if;
+            else 
+                if(o_done = '1') then
+                    temp <= '0';
+                    b_ready <= '0'; 
+                    b_green <= std_logic_vector(to_unsigned(to_integer(unsigned(b_green)) + 1, 392));
+                end if;
             end if;
         end if;
     end process;

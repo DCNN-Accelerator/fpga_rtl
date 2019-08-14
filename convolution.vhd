@@ -45,55 +45,21 @@ end convolution;
 
 architecture rtl of convolution is
 
+constant zeros              : std_logic_vector(391 downto 0) := (others => '0');
+
 --sum of matrix multiplication
 signal sum                  : signed(17 downto 0);
 --temporary signal of o_done
 signal done                 : std_logic;
---countered used to determine which index of values to use for multiplication
-signal row                  : integer range 0 to 7;
-signal col                  : integer range 0 to 6;
---used for actual multiplicatino
-signal filter_byte          : std_logic_vector(7 downto 0);
-signal buff_byte            : std_logic_vector(7 downto 0);
-
-    component mux_7x7
-        PORT    (
-                    clk                 : in    std_logic;
-                    rst                 : in    std_logic;
-                    
-                    --used to select which of the 49 values to use
-                    row                 : in    integer range 0 to 6;
-                    col                 : in    integer range 0 to 6;
-                    
-                    --list of all 49 values, each 1 byte long
-                    val_in_list         : in    std_logic_vector(391 downto 0);
-                    
-                    --output value from the mux
-                    val_out             : out   std_logic_vector(7 downto 0)
-                );
-    end component;
+--mimics o_done 
+signal o_done_mimic         : std_logic;
+--latched in values
+signal latch_f              : std_logic_vector(391 downto 0);
+signal latch_b              : std_logic_vector(391 downto 0);
 
 begin
 
-    filter_mux: mux_7x7
-        PORT MAP    (
-                        clk             => clk,
-                        rst             => rst,
-                        row             => row,
-                        col             => col,
-                        val_in_list     => k_vals,
-                        val_out         => filter_byte
-                    );
-                    
-    buff_mux: mux_7x7
-        PORT MAP    (
-                        clk             => clk,
-                        rst             => rst,
-                        row             => row,
-                        col             => col,
-                        val_in_list     => k_buff,
-                        val_out         => buff_byte
-                    );
+
     
     --process handles multiplication
     process
@@ -102,43 +68,50 @@ begin
         wait until clk = '1';
         
         if(rst = '0') then
-            row <= 0;
-            col <= 0;
             o_done <= '1';
             sum <= (others => '0');
             done <= '0';
             o_val <= (others => '0');
+            o_done_mimic <= '1';
+            latch_b <= (others => '0');
+            latch_f <= (others => '0');
         else
         
             --checks to see if it is ready for convolution
             if(k_buff_ready = '1') then
                 --checks to see if the convolution was not performed
                 if(done = '0') then
-                    --checks to see if all values were calculated
-                    if(row = 7) then
-                        --set done to true
-                        done <= '1';
-                        --set sum to output
-                        o_val <= std_logic_vector(sum);
-                        --reset sum
-                        sum <= (others => '0');
-                        --reset counter
-                        row <= 0;
-                        col <= 0;
-                        --convolution is done
-                        o_done <= '1';
-                    else
-                        --convolution beginning so reset done
-                        o_done <= '0';
-                        --increase counter
-                        if(col = 6) then
-                            col <= 0;
-                            row <= row + 1;
+                    if(o_done_mimic = '0') then
+                        --checks to see if all values were calculated
+                        if(latch_f = zeros or latch_b = zeros)then
+                            --set done to true
+                            done <= '1';
+                            --set sum to output
+                            o_val <= std_logic_vector(sum);
+                            --reset sum
+                            sum <= (others => '0');
+                            --convolution is done
+                            o_done <= '1';
+                            o_done_mimic <= '1';
                         else
-                            col <= col + 1;
+                            --convolutino started therefor no output is done
+                            o_done <= '0';
+                            o_done_mimic <= '0';
+                            --shift in 0's to value read
+                            latch_f(391 downto 384) <= X"00";
+                            latch_b(391 downto 384) <= X"00";
+                            --shift old data
+                            latch_f(383 downto 0) <= latch_f(391 downto 8);
+                            latch_b(383 downto 0) <= latch_b(391 downto 8);
+                            --continue to perform convolution
+                            sum <= sum + signed(latch_f(7 downto 0)) * signed('0' & latch_b(7 downto 0));
                         end if;
-                        --continue to perform convolution
-                        sum <= sum + signed(filter_byte) * signed('0' & buff_byte);
+                    
+                    else
+                        o_done <= '0';
+                        o_done_mimic <= '0';
+                        latch_f <= k_vals;
+                        latch_b <= k_buff;
                     end if;
                 else
                     --continue to wait for k_buff_ready is reset
@@ -148,8 +121,6 @@ begin
                 --k_buff_ready was reset, allow next convolution
                 done <= '0';
                 sum <= (others => '0');
-                row <= 0;
-                col <= 0;
             end if;
         end if;
     end process;
