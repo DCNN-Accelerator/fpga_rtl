@@ -53,30 +53,11 @@ signal state            : my_states;
 signal counter          : integer range 0 to CLK_SPEED / BAUD_RATE - 1;
 --counts amount of bits received
 signal bits             : integer range 0 to 23;
---metastable bit
-signal bit_meta         : std_logic;
---holds the bit received
-signal bit_in           : std_logic;
 --holds all the data received
 signal data_in          : std_logic_vector(23 downto 0);
 
 begin
 
-    --process removes metastable bits by waiting for data to settle
-    process
-    begin
-        wait until clk = '1';
-        
-        if(rst = '0') then
-            --line defaults to high
-            bit_meta <= '1';
-            bit_in <= '1';
-        else
-            --saves the bit
-            bit_meta <= rx;
-            bit_in <= bit_meta;
-        end if;
-    end process;
 
     --process handles the state machine
     process 
@@ -101,19 +82,18 @@ begin
                     bits <= 0;
                     --in idle state so reset data and flag
                     flag <= '0';
-                    bit_in <= '0';
                     data_in <= (others => '0');
                     data <= (others => '0');
                     
                     --checks for start bit
-                    if(bit_in = '0') then
+                    if(rx = '0') then
                         state <= start;
                     end if;
                 
                 --ensure start bit remains stable for half the clock cycles
                 when start =>
-                    --checks to ensure bit_in remains low
-                    if(bit_in = '0')then
+                    --checks to ensure rx remains low
+                    if(rx = '0')then
                         --checks to see if counter made it halfway
                         if(counter = (CLK_SPEED / BAUD_RATE) / 2) then
                             --start bit accepted, move to running
@@ -125,7 +105,7 @@ begin
                             counter <= counter + 1;
                         end if;
                     else
-                        --bit_in was not stable, move to idle
+                        --rx was not stable, move to idle
                         state <= idle;
                     end if;
                     
@@ -137,18 +117,17 @@ begin
                     if(counter = (CLK_SPEED / BAUD_RATE) - 1) then
                         --checks to see if all bits have been read
                         if(bits = 23) then
-                            --saves data read over rx to output
-                            data <= data_in;
                             --moves to stop bit
                             state <= stop;
+                            counter <= 0;
                         else
                             --not all bits have been read,
                             bits <= bits + 1;
                             counter <= 0;
-                            --save new data and shift old (LSB is sent first)
-                            data_in(23) <= bit_in;
-                            data_in(22 downto 0) <= data_in(23 downto 1);
                         end if;
+                        --save new data and shift old (LSB is sent first)
+                        data_in(23) <= rx;
+                        data_in(22 downto 0) <= data_in(23 downto 1);
                     else
                         --data not ready, continue to count
                         counter <= counter + 1;
@@ -157,10 +136,13 @@ begin
                 --waits for stop bit and sets flag for data to be read
                 when stop =>
                     --set the data ready flag
-                    flag <= '1';
+                    flag <= '1'; 
+                    --saves data read over rx to output
+                    data <= data_in;
                     --waits for counter to reach end of stop bit
                     if(counter = (CLK_SPEED / BAUD_RATE) - 1) then
                         state <= idle;
+                       
                     else
                         --continue to wait
                         counter <= counter + 1;
