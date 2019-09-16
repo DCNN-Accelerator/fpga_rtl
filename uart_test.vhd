@@ -32,17 +32,21 @@ architecture rtl of uart_test is
 
 signal clk_100          : std_logic := '0';
 signal rst_100          : std_logic := '0';
-signal data             : std_logic_vector(23 downto 0) := X"000000";
-signal ena              : std_logic := '0';
-signal ready_check      : std_logic;
 
-signal data_read        : std_logic_vector(23 downto 0);
-signal new_data         : std_logic;
-
-signal uart_conn        : std_logic;
 signal value            : integer := 0;
+
+signal read             : std_logic := '0';
+signal read_data        : std_logic_vector(7 downto 0);
+signal empty            : std_logic;
+
+signal write            : std_logic := '0';
+signal write_data       : std_logic_vector(7 downto 0) := X"00";
+signal full             : std_logic;
+
+signal line1            : std_logic;
+signal line2            : std_logic;
     
-    component uart 
+    component uart is
         GENERIC (   
                     CLK_SPEED               : integer;
                     BAUD_RATE               : integer
@@ -51,23 +55,21 @@ signal value            : integer := 0;
                     clk                     : in    std_logic;
                     rst                     : in    std_logic;
                     
-                    --used for transmitting data
-                    --data to send over uart
-                    data_tx                 : in    std_logic_vector(23 downto 0);
-                    --uart transmission line for sending data
-                    tx_uart                 : out   std_logic;
-                    --signals when to send out new data over uart
-                    enable_tx               : in    std_logic;
-                    --signals that it is ready to send data again
-                    ready_tx                : out   std_logic;
+                    --used to read data from RX FIFO
+                    rx_fifo_renable         : in    std_logic;
+                    uart_data_out           : out   std_logic_vector(7 downto 0);
+                    uart_rx_empty           : out   std_logic;
                     
-                    --used for receiving data
-                    --data received over uart
-                    data_rx                 : out   std_logic_vector(23 downto 0);
-                    --uart transmission line for receiving data
-                    rx_uart                 : in    std_logic;
-                    --signals when new data was clocked in
-                    new_rx                  : out   std_logic
+                    --used to write data to TX FIFO
+                    tx_fifo_wenable         : in    std_logic;
+                    uart_data_in            : in    std_logic_vector(7 downto 0);
+                    uart_tx_full            : out   std_logic;
+                    
+                    --physical ports for UART
+                    RX                      : in    std_logic;
+                    rts                     : out   std_logic;
+                    TX                      : out   std_logic;
+                    cts                     : in    std_logic
                 );
     end component;
 
@@ -76,18 +78,21 @@ begin
     my_uart: uart
         GENERIC MAP (
                         CLK_SPEED           => 100_000_000,
-                        BAUD_RATE           => 10_000_000
+                        BAUD_RATE           => 25_000_000
                     )
         PORT MAP    (
                         clk                 => clk_100,
                         rst                 => rst_100,
-                        data_tx             => data,
-                        tx_uart             => uart_conn,
-                        enable_tx           => ena,
-                        ready_tx            => ready_check,
-                        data_rx             => data_read,
-                        rx_uart             => uart_conn,
-                        new_rx              => new_data
+                        rx_fifo_renable     => read,
+                        uart_data_out       => read_data,
+                        uart_rx_empty       => empty,
+                        tx_fifo_wenable     => write,
+                        uart_data_in        => write_data,
+                        uart_tx_full        => full,
+                        RX                  => line1,
+                        rts                 => line2,
+                        TX                  => line1,
+                        cts                 => line2
                     );
 
     process
@@ -107,16 +112,16 @@ begin
     
     process
     begin
-        wait until clk_100 = '1';
+        wait until clk_100 = '0';
         
         if(rst_100 = '1') then
-            if(ready_check = '1') then
+            if(full = '0') then
                 value <= value + 1;
-                data <= std_logic_vector(to_unsigned(value, 24));
-                ena <= '1';
-            else
-                ena <= '0';
+                write_data <= std_logic_vector(to_unsigned(value, 8));
             end if;
+            write <= not full;
+            
+            read <= empty;
         end if;
     end process;
     

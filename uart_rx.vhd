@@ -38,7 +38,11 @@ entity uart_rx is
                 --ready flag for data received  
                 flag                        : out   std_logic;
                 --data vector out
-                data                        : out   std_logic_vector(23 downto 0)
+                data                        : out   std_logic_vector(7 downto 0);
+                --flag used to show FPGA is requesting data from PC
+                rts                         : out   std_logic;
+                --used to determine if the FIFO is full
+                fifo_full                   : in    std_logic
             );
 end uart_rx;
 
@@ -52,9 +56,9 @@ signal state            : my_states;
 --counter used for clocks per bit
 signal counter          : integer range 0 to CLK_SPEED / BAUD_RATE - 1;
 --counts amount of bits received
-signal bits             : integer range 0 to 23;
+signal bits             : integer range 0 to 7;
 --holds all the data received
-signal data_in          : std_logic_vector(23 downto 0);
+signal data_in          : std_logic_vector(7 downto 0);
 
 begin
 
@@ -72,6 +76,7 @@ begin
             data_in <= (others => '0');
             data <= (others => '0');
             flag <= '0';
+            rts <= '0';
         else
             --examines state to determine what to do 
             case(state) is
@@ -85,8 +90,14 @@ begin
                     data_in <= (others => '0');
                     data <= (others => '0');
                     
+                    --checks to make sure that the fifo is not full
+                    --before setting ready to send to true
+                    if(fifo_full = '0') then
+                        rts <= '1';
+                    end if;
+                    
                     --checks for start bit
-                    if(rx = '0') then
+                    if(rx = '0' and fifo_full = '0') then
                         state <= start;
                     end if;
                 
@@ -116,7 +127,7 @@ begin
                     --waited for data to be ready
                     if(counter = (CLK_SPEED / BAUD_RATE) - 1) then
                         --checks to see if all bits have been read
-                        if(bits = 23) then
+                        if(bits = 7) then
                             --moves to stop bit
                             state <= stop;
                             counter <= 0;
@@ -126,8 +137,8 @@ begin
                             counter <= 0;
                         end if;
                         --save new data and shift old (LSB is sent first)
-                        data_in(23) <= rx;
-                        data_in(22 downto 0) <= data_in(23 downto 1);
+                        data_in(7) <= rx;
+                        data_in(6 downto 0) <= data_in(7 downto 1);
                     else
                         --data not ready, continue to count
                         counter <= counter + 1;
@@ -142,7 +153,8 @@ begin
                     --waits for counter to reach end of stop bit
                     if(counter = (CLK_SPEED / BAUD_RATE) - 1) then
                         state <= idle;
-                       
+                        --set rts to low since stop bit was sent
+                        rts <= '0';
                     else
                         --continue to wait
                         counter <= counter + 1;
