@@ -32,7 +32,7 @@ entity uart_tx is
                 clk                         : in    std_logic;
                 rst                         : in    std_logic;
            
-                --enable line to send data (enable low)
+                --enable line to send data
                 enable                      : in    std_logic;
                 --data to send
                 data                        : in    std_logic_vector(7 downto 0);
@@ -103,7 +103,6 @@ begin
                         
                     --saves in the data from the data_in line
                     when save =>
-                        latch <= data;
                         state <= start;
                     
                     --sends out start bit

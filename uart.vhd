@@ -35,7 +35,7 @@ entity uart is
                 --used to read data from RX FIFO
                 rx_fifo_renable         : in    std_logic;
                 uart_data_out           : out   std_logic_vector(7 downto 0);
-                uart_rx_empty           : out   std_logic;
+                uart_rx_not_empty       : out   std_logic;
                 
                 --used to write data to TX FIFO
                 tx_fifo_wenable         : in    std_logic;
@@ -46,7 +46,10 @@ entity uart is
                 RX                      : in    std_logic;
                 rts                     : out   std_logic;
                 TX                      : out   std_logic;
-                cts                     : in    std_logic
+                cts                     : in    std_logic;
+                
+                --used for debuggin
+                temp                    : out   std_logic
             );
 end uart;
 
@@ -56,7 +59,7 @@ signal rx_fifo_full         : std_logic;
 signal rx_fifo_wdata        : std_logic_vector(7 downto 0);
 signal rx_fifo_wenable      : std_logic;
 
-signal tx_fifo_empty        : std_logic;
+signal tx_fifo_not_empty        : std_logic;
 signal tx_fifo_rdata        : std_logic_vector(7 downto 0);
 signal tx_fifo_renable      : std_logic;
 
@@ -110,14 +113,14 @@ signal tx_fifo_renable      : std_logic;
                     constant FIFO_DEPTH         : positive := 256
                 );
         PORT    ( 
-                    CLK                         : in  std_logic;
-                    RST                         : in  std_logic;
-                    WriteEn                     : in  std_logic;
-                    DataIn                      : in  std_logic_vector (DATA_WIDTH - 1 downto 0);
-                    ReadEn                      : in  std_logic;
-                    DataOut                     : out std_logic_vector (DATA_WIDTH - 1 downto 0);
-                    Empty                       : out std_logic;
-                    Full                        : out std_logic
+                    clk                         : in  std_logic;
+                    rst                         : in  std_logic;
+                    writeEn                     : in  std_logic;
+                    dataIn                      : in  std_logic_vector (DATA_WIDTH - 1 downto 0);
+                    readEn                      : in  std_logic;
+                    dataOut                     : out std_logic_vector (DATA_WIDTH - 1 downto 0);
+                    not_empty                   : out std_logic;
+                    full                        : out std_logic
                 );
     end component;
     
@@ -135,7 +138,7 @@ begin
                         dataIn          => rx_fifo_wdata,
                         readEn          => rx_fifo_renable,
                         dataOut         => uart_data_out,
-                        empty           => uart_rx_empty,
+                        not_empty       => uart_rx_not_empty,
                         full            => rx_fifo_full
                     );
     
@@ -167,7 +170,7 @@ begin
                         dataIn          => uart_data_in,
                         readEn          => tx_fifo_renable,
                         dataOut         => tx_fifo_rdata,
-                        empty           => tx_fifo_empty,
+                        not_empty       => tx_fifo_not_empty,
                         full            => uart_tx_full
                     );
                     
@@ -179,11 +182,13 @@ begin
         PORT MAP    (
                         clk             => clk,
                         rst             => rst,
-                        enable          => tx_fifo_empty,
+                        enable          => tx_fifo_not_empty,
                         data            => tx_fifo_rdata,
                         tx              => TX,
                         flag            => tx_fifo_renable,
                         cts             => cts
                     );
+    
+    temp <= tx_fifo_not_empty;
 
 end rtl;

@@ -40,7 +40,7 @@ end phy_uart_tester;
 
 architecture rtl of phy_uart_tester is
 
-type my_states is (i, r, w);
+type my_states is (i, d, r, w);
 
 signal state        : my_states;
 
@@ -60,12 +60,15 @@ begin
             case state is
                 when i =>
                     if( read_ready = '1') then
-                        state <= r;
+                        state <= d;
                         read <= '1';
                     else
                         read <= '0';
                         state <= i;
                     end if;
+                
+                when d =>
+                    state <= r;
                     
                 when r =>
                     read <= '0';

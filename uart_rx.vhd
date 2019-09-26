@@ -146,15 +146,15 @@ begin
                     
                 --waits for stop bit and sets flag for data to be read
                 when stop =>
-                    --set the data ready flag
-                    flag <= '1'; 
-                    --saves data read over rx to output
-                    data <= data_in;
                     --waits for counter to reach end of stop bit
                     if(counter = (CLK_SPEED / BAUD_RATE) - 1) then
                         state <= idle;
                         --set rts to low since stop bit was sent
                         rts <= '0';
+                        --set the data ready flag
+                        flag <= '1'; 
+                        --saves data read over rx to output
+                        data <= data_in;
                     else
                         --continue to wait
                         counter <= counter + 1;
@@ -163,7 +163,6 @@ begin
                 --unknown state, should not occur
                 when others =>
                     state <= idle;
-                    
             end case; 
         end if;
     end process;
